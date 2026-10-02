@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Frontend ──────────────────────────────────────────────
+  lint-frontend:
+    name: Frontend Lint & Typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  # ── Backend ───────────────────────────────────────────────
+  test-backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+  # ── Lab Services ──────────────────────────────────────────
+  test-labs:
+    name: Lab Services Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        lab:
+          - python-pickle-lab
+          - java-serialization-lab
+          - dotnet-viewstate-lab
+          - ml-model-lab
+          - callback-simulator
+    defaults:
+      run:
+        working-directory: labs/${{ matrix.lab }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install lab dependencies
+        run: pip install -r requirements.txt
+
+      - name: Smoke-test lab import
+        run: python -c "import app; print('Lab imports OK')"
+
+  # ── Security Scan ─────────────────────────────────────────
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install scanners
+        run: pip install safety bandit
+
+      - name: Safety check (backend)
+        run: safety check -r backend/requirements.txt || true
+
+      - name: Safety check (labs)
+        run: |
+          for lab in labs/*/requirements.txt; do
+            echo "--- $lab ---"
+            safety check -r "$lab" || true
+          done
+
+      - name: Bandit static analysis (backend)
+        run: bandit -r backend/ -ll --exclude backend/tests || true
+
+  # ── Docker Build ──────────────────────────────────────────
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build all services
+        run: docker compose build --no-cache
+
+      - name: Verify containers start
+        run: |
+          docker compose up -d callback-simulator python-pickle-lab
+          sleep 10
+          docker compose ps
+          docker compose exec -T callback-simulator wget -qO- http://localhost:8080/health || true
+          docker compose down

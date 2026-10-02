@@ -1,0 +1,138 @@
+version: '3.9'
+
+networks:
+  dehydrate_frontend:
+    driver: bridge
+  dehydrate_lab:
+    driver: bridge
+    internal: true  # Lab containers have no internet access
+  dehydrate_callback:
+    driver: bridge
+    internal: true
+
+volumes:
+  dehydrate_data:
+  callback_events:
+
+services:
+  # ─── Frontend ──────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    networks:
+      - dehydrate_frontend
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # ─── Backend ───────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - LAB_NETWORK=dehydrate_lab
+      - CALLBACK_URL=http://callback-simulator:8080
+      - PYTHON_LAB_URL=http://python-pickle-lab:8000
+      - JAVA_LAB_URL=http://java-serialization-lab:8080
+      - DOTNET_LAB_URL=http://dotnet-viewstate-lab:5000
+      - ML_LAB_URL=http://ml-model-lab:8000
+    networks:
+      - dehydrate_frontend
+      - dehydrate_lab
+    depends_on:
+      - python-pickle-lab
+      - java-serialization-lab
+      - dotnet-viewstate-lab
+      - ml-model-lab
+      - callback-simulator
+    volumes:
+      - dehydrate_data:/app/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    restart: unless-stopped
+
+  # ─── Python Pickle Lab ─────────────────────────────────────
+  python-pickle-lab:
+    build:
+      context: ./labs/python-pickle-lab
+    networks:
+      - dehydrate_lab
+      - dehydrate_callback
+    environment:
+      - LAB_MODE=authorized
+      - CALLBACK_URL=http://callback-simulator:8080
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: false
+    user: "1000:1000"
+    restart: unless-stopped
+
+  # ─── Java Serialization Lab ────────────────────────────────
+  java-serialization-lab:
+    build:
+      context: ./labs/java-serialization-lab
+    networks:
+      - dehydrate_lab
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: "1000:1000"
+    restart: unless-stopped
+
+  # ─── .NET ViewState Lab ────────────────────────────────────
+  dotnet-viewstate-lab:
+    build:
+      context: ./labs/dotnet-viewstate-lab
+    networks:
+      - dehydrate_lab
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: "1000:1000"
+    restart: unless-stopped
+
+  # ─── ML Model Lab ──────────────────────────────────────────
+  ml-model-lab:
+    build:
+      context: ./labs/ml-model-lab
+    networks:
+      - dehydrate_lab
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: "1000:1000"
+    restart: unless-stopped
+
+  # ─── Callback Simulator ────────────────────────────────────
+  callback-simulator:
+    build:
+      context: ./labs/callback-simulator
+    networks:
+      - dehydrate_lab
+      - dehydrate_callback
+    volumes:
+      - callback_events:/app/events
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: "1000:1000"
+    restart: unless-stopped

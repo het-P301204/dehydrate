@@ -1,0 +1,250 @@
+[
+  {
+    "id": "py-pickle-reduce",
+    "name": "Python Pickle __reduce__",
+    "language": "Python",
+    "severity": "critical",
+    "affected_library": "pickle (stdlib)",
+    "description": "Python's pickle module calls __reduce__ or __reduce_ex__ on objects during deserialization. A malicious object can return a tuple of (callable, args) that executes arbitrary code when unpickled.",
+    "cve": null,
+    "attack_vector": "Any application deserializing untrusted data with pickle.loads()",
+    "remediation": "Never unpickle data from untrusted sources. Use JSON, MessagePack, or Protocol Buffers instead.",
+    "references": ["https://docs.python.org/3/library/pickle.html#restricting-globals", "https://davidhamann.de/2020/04/05/exploiting-python-pickle/"],
+    "nodes": [
+      {"id": "pi1", "label": "Attacker Input", "type": "input", "class_name": "bytes", "package": "builtins", "description": "Malicious pickle bytes crafted by attacker", "security_significance": "Entry point — no validation occurs before deserialization begins", "mitigation": "Reject all pickle data from untrusted sources at the boundary"},
+      {"id": "pi2", "label": "pickle.loads()", "type": "deserializer", "class_name": "pickle", "package": "pickle", "description": "Standard library deserialization function", "security_significance": "Calls __reduce__ on any object type without restriction", "mitigation": "Replace with safe alternatives; use pickletools.dis for static analysis only"},
+      {"id": "pi3", "label": "__reduce__ hook", "type": "gadget", "class_name": "object.__reduce__", "package": "builtins", "description": "Custom __reduce__ returning (os.system, ('id',))", "security_significance": "Allows attacker to specify any callable and arguments for execution", "mitigation": "Implement a custom Unpickler that restricts allowed globals"},
+      {"id": "pi4", "label": "REDUCE opcode", "type": "transform", "class_name": "pickletools", "package": "pickle", "description": "Pickle REDUCE opcode (0x52) invokes the callable", "security_significance": "Core opcode that triggers arbitrary function call", "mitigation": "Scan for REDUCE opcode presence before deserialization"},
+      {"id": "pi5", "label": "os.system()", "type": "execution", "class_name": "os.system", "package": "os", "description": "Shell command execution", "security_significance": "Achieves arbitrary OS command execution with the process's privileges", "mitigation": "Block the os module in custom Unpickler.find_class()"}
+    ],
+    "edges": [
+      {"id": "pe1", "source": "pi1", "target": "pi2", "label": "passed to", "animated": true},
+      {"id": "pe2", "source": "pi2", "target": "pi3", "label": "invokes", "animated": true},
+      {"id": "pe3", "source": "pi3", "target": "pi4", "label": "encoded as", "animated": true},
+      {"id": "pe4", "source": "pi4", "target": "pi5", "label": "executes", "animated": true}
+    ]
+  },
+  {
+    "id": "py-pickle-subprocess",
+    "name": "Python Pickle subprocess.Popen",
+    "language": "Python",
+    "severity": "critical",
+    "affected_library": "pickle (stdlib)",
+    "description": "Variant of the __reduce__ gadget chain targeting subprocess.Popen for more reliable command execution with argument control, bypassing shells that restrict os.system.",
+    "cve": null,
+    "attack_vector": "Any Python application deserializing untrusted pickle data",
+    "remediation": "Use a restricted Unpickler. Block subprocess, os, and builtins in find_class().",
+    "references": ["https://book.hacktricks.xyz/pentesting-web/deserialization#python"],
+    "nodes": [
+      {"id": "sp1", "label": "Attacker Payload", "type": "input", "class_name": "bytes", "package": "builtins", "description": "Pickle bytes with subprocess.Popen in __reduce__", "security_significance": "No boundary check; payload accepted as legitimate data", "mitigation": "Implement strict allowlist of deserializable types"},
+      {"id": "sp2", "label": "pickle.loads()", "type": "deserializer", "class_name": "pickle", "package": "pickle", "description": "Stdlib pickle deserializer", "security_significance": "Executes __reduce__ without type validation", "mitigation": "Use RestrictedUnpickler pattern"},
+      {"id": "sp3", "label": "GLOBAL opcode", "type": "gadget", "class_name": "subprocess", "package": "subprocess", "description": "GLOBAL opcode loads subprocess.Popen", "security_significance": "Loads any importable Python object by module+attribute path", "mitigation": "Override find_class() to raise exception for disallowed modules"},
+      {"id": "sp4", "label": "subprocess.Popen", "type": "execution", "class_name": "Popen", "package": "subprocess", "description": "Spawns a subprocess with attacker-controlled arguments", "security_significance": "Direct process creation bypassing shell restrictions", "mitigation": "Block subprocess module in Unpickler"}
+    ],
+    "edges": [
+      {"id": "spe1", "source": "sp1", "target": "sp2", "label": "input", "animated": true},
+      {"id": "spe2", "source": "sp2", "target": "sp3", "label": "resolves", "animated": true},
+      {"id": "spe3", "source": "sp3", "target": "sp4", "label": "instantiates", "animated": true}
+    ]
+  },
+  {
+    "id": "java-cc1",
+    "name": "Java CommonsCollections 1",
+    "language": "Java",
+    "severity": "critical",
+    "affected_library": "Apache Commons Collections <=3.2.1",
+    "description": "Classic gadget chain using InvokerTransformer chained through LazyMap and AnnotationInvocationHandler. Achieves arbitrary Java reflection-based method invocation leading to Runtime.exec().",
+    "cve": "CVE-2015-4852",
+    "attack_vector": "Java deserialization endpoints accepting serialized Java objects (RMI, JMX, HTTP object parameters)",
+    "remediation": "Upgrade to Commons Collections 3.2.2+. Use SerialKiller or similar deserialization filter. Implement JEP 290 filters.",
+    "references": ["https://frohoff.github.io/appseccali-marshalling-pickles/", "https://github.com/frohoff/ysoserial"],
+    "nodes": [
+      {"id": "cc1n1", "label": "Serialized Object", "type": "input", "class_name": "ObjectInputStream", "package": "java.io", "description": "Java serialized object stream with 0xACED0005 magic", "security_significance": "Java accepts any serializable class during readObject()", "mitigation": "Implement ObjectInputFilter (JEP 290) before readObject()"},
+      {"id": "cc1n2", "label": "ObjectInputStream.readObject()", "type": "deserializer", "class_name": "ObjectInputStream", "package": "java.io", "description": "Standard Java deserialization entry point", "security_significance": "Invokes readObject() on the deserialized class, triggering gadget chain", "mitigation": "Replace with filtered ObjectInputStream"},
+      {"id": "cc1n3", "label": "AnnotationInvocationHandler", "type": "gadget", "class_name": "AnnotationInvocationHandler", "package": "sun.reflect.annotation", "description": "readObject() calls entrySet() on its memberValues map", "security_significance": "Triggers LazyMap.get() during deserialization", "mitigation": "Filter AnnotationInvocationHandler from deserialization stream"},
+      {"id": "cc1n4", "label": "LazyMap.get()", "type": "gadget", "class_name": "LazyMap", "package": "org.apache.commons.collections.map", "description": "Calls factory.transform() on cache miss", "security_significance": "Invokes the transformer chain without explicit call from application", "mitigation": "Upgrade Commons Collections; avoid LazyMap with untrusted data"},
+      {"id": "cc1n5", "label": "ChainedTransformer", "type": "transform", "class_name": "ChainedTransformer", "package": "org.apache.commons.collections.functors", "description": "Chains multiple Transformer calls sequentially", "security_significance": "Orchestrates reflection calls to build Runtime.exec() invocation", "mitigation": "Block Transformer classes in deserialization filter"},
+      {"id": "cc1n6", "label": "InvokerTransformer", "type": "transform", "class_name": "InvokerTransformer", "package": "org.apache.commons.collections.functors", "description": "Invokes arbitrary methods via reflection", "security_significance": "Core gadget: calls Method.DEHYDRATE() with attacker-controlled method and args", "mitigation": "Patch to 3.2.2; InvokerTransformer throws SecurityException on untrusted input"},
+      {"id": "cc1n7", "label": "Runtime.exec()", "type": "execution", "class_name": "Runtime", "package": "java.lang", "description": "Executes OS command", "security_significance": "Remote code execution with JVM process privileges", "mitigation": "No mitigation at this stage — prevent reaching this node"}
+    ],
+    "edges": [
+      {"id": "cc1e1", "source": "cc1n1", "target": "cc1n2", "label": "readObject", "animated": true},
+      {"id": "cc1e2", "source": "cc1n2", "target": "cc1n3", "label": "triggers", "animated": true},
+      {"id": "cc1e3", "source": "cc1n3", "target": "cc1n4", "label": "calls", "animated": true},
+      {"id": "cc1e4", "source": "cc1n4", "target": "cc1n5", "label": "transform", "animated": true},
+      {"id": "cc1e5", "source": "cc1n5", "target": "cc1n6", "label": "chain", "animated": true},
+      {"id": "cc1e6", "source": "cc1n6", "target": "cc1n7", "label": "DEHYDRATE", "animated": true}
+    ]
+  },
+  {
+    "id": "java-cc6",
+    "name": "Java CommonsCollections 6",
+    "language": "Java",
+    "severity": "critical",
+    "affected_library": "Apache Commons Collections <=3.2.1 / <=4.0",
+    "description": "Java-version-independent gadget chain using HashSet + TiedMapEntry + LazyMap to trigger InvokerTransformer. Works on Java 8u76+ where CC1 was patched via AnnotationInvocationHandler fix.",
+    "cve": "CVE-2015-7501",
+    "attack_vector": "All Java RMI/JMX/HTTP deserialization endpoints with Commons Collections on classpath",
+    "remediation": "Upgrade Commons Collections. Implement JEP 290 deserialization filters. Use serialization allowlists.",
+    "references": ["https://github.com/frohoff/ysoserial", "https://blog.0xabc.com/cc6-gadget-chain/"],
+    "nodes": [
+      {"id": "cc6n1", "label": "Serialized Payload", "type": "input", "class_name": "ObjectInputStream", "package": "java.io", "description": "Serialized HashSet containing TiedMapEntry", "security_significance": "Entry point — passes JVM version check unlike CC1", "mitigation": "Block HashSet+TiedMapEntry combination in deserialization filter"},
+      {"id": "cc6n2", "label": "HashSet.readObject()", "type": "deserializer", "class_name": "HashSet", "package": "java.util", "description": "readObject() rehashes elements, triggering hashCode()", "security_significance": "Standard JDK class that cannot be filtered without breaking functionality", "mitigation": "Use allowlist-based filtering instead of blocklist"},
+      {"id": "cc6n3", "label": "TiedMapEntry.hashCode()", "type": "gadget", "class_name": "TiedMapEntry", "package": "org.apache.commons.collections.keyvalue", "description": "hashCode() calls getValue() which calls map.get(key)", "security_significance": "Bridges JDK collections to Commons Collections transformer chain", "mitigation": "Upgrade or filter TiedMapEntry"},
+      {"id": "cc6n4", "label": "LazyMap.get()", "type": "gadget", "class_name": "LazyMap", "package": "org.apache.commons.collections.map", "description": "On cache miss, calls factory.transform()", "security_significance": "Same as CC1 LazyMap gadget, reachable via different path", "mitigation": "Upgrade Commons Collections"},
+      {"id": "cc6n5", "label": "InvokerTransformer.transform()", "type": "transform", "class_name": "InvokerTransformer", "package": "org.apache.commons.collections.functors", "description": "Reflective method invocation", "security_significance": "Executes Runtime.exec() via reflection", "mitigation": "Upgrade to fixed version where InvokerTransformer checks SecurityManager"},
+      {"id": "cc6n6", "label": "Runtime.exec()", "type": "execution", "class_name": "Runtime", "package": "java.lang", "description": "OS command execution", "security_significance": "Full RCE achieved", "mitigation": "Prevent reaching this node via input validation and deserialization filters"}
+    ],
+    "edges": [
+      {"id": "cc6e1", "source": "cc6n1", "target": "cc6n2", "label": "deserialized", "animated": true},
+      {"id": "cc6e2", "source": "cc6n2", "target": "cc6n3", "label": "hashCode()", "animated": true},
+      {"id": "cc6e3", "source": "cc6n3", "target": "cc6n4", "label": "map.get()", "animated": true},
+      {"id": "cc6e4", "source": "cc6n4", "target": "cc6n5", "label": "transform()", "animated": true},
+      {"id": "cc6e5", "source": "cc6n5", "target": "cc6n6", "label": "exec()", "animated": true}
+    ]
+  },
+  {
+    "id": "java-spring",
+    "name": "Java Spring Framework Gadget",
+    "language": "Java",
+    "severity": "high",
+    "affected_library": "Spring Framework <=4.2.3",
+    "description": "Uses Spring's SerializableTypeWrapper and MethodInvokeTypeProvider to DEHYDRATE arbitrary methods via deserialization. Requires Spring on the classpath.",
+    "cve": "CVE-2016-1000027",
+    "attack_vector": "Spring-based Java applications with deserialization endpoints",
+    "remediation": "Upgrade Spring Framework. Disable Java serialization endpoint if not required.",
+    "references": ["https://spring.io/security/cve-2016-1000027"],
+    "nodes": [
+      {"id": "spn1", "label": "Serialized Input", "type": "input", "class_name": "ObjectInputStream", "package": "java.io", "description": "Payload targeting Spring's MethodInvokeTypeProvider", "security_significance": "Spring-specific entry point", "mitigation": "Disable HTTP invoker; upgrade Spring"},
+      {"id": "spn2", "label": "MethodInvokeTypeProvider", "type": "gadget", "class_name": "MethodInvokeTypeProvider", "package": "org.springframework.core", "description": "readObject() calls ReflectionUtils.invokeMethod()", "security_significance": "Spring utility enables arbitrary method invocation", "mitigation": "Filter Spring serializable classes from stream"},
+      {"id": "spn3", "label": "SerializableTypeWrapper", "type": "gadget", "class_name": "SerializableTypeWrapper", "package": "org.springframework.core", "description": "Proxy invocation via MethodHandle", "security_significance": "Bypasses direct method reference checks", "mitigation": "Upgrade to patched Spring version"},
+      {"id": "spn4", "label": "ReflectionUtils.invokeMethod()", "type": "execution", "class_name": "ReflectionUtils", "package": "org.springframework.util", "description": "Invokes arbitrary method via reflection", "security_significance": "Arbitrary method execution with application context privileges", "mitigation": "No mitigation at this stage"}
+    ],
+    "edges": [
+      {"id": "spe1", "source": "spn1", "target": "spn2", "label": "readObject", "animated": true},
+      {"id": "spe2", "source": "spn2", "target": "spn3", "label": "invokes", "animated": true},
+      {"id": "spe3", "source": "spn3", "target": "spn4", "label": "reflection", "animated": true}
+    ]
+  },
+  {
+    "id": "dotnet-typeconfuse",
+    "name": ".NET TypeConfuseDelegateGadget",
+    "language": ".NET",
+    "severity": "critical",
+    "affected_library": ".NET Framework / .NET Core (BinaryFormatter)",
+    "description": "Exploits type confusion in .NET delegate invocation to execute arbitrary methods. Chains MulticastDelegate, Comparison<T>, and SortedSet to trigger code execution during BinaryFormatter deserialization.",
+    "cve": "CVE-2019-0820",
+    "attack_vector": "Any .NET application using BinaryFormatter, SoapFormatter, or NetDataContractSerializer",
+    "remediation": "Replace BinaryFormatter with System.Text.Json or DataContractSerializer with known types. BinaryFormatter is disabled by default in .NET 5+.",
+    "references": ["https://docs.microsoft.com/en-us/dotnet/standard/serialization/binaryformatter-security-guide"],
+    "nodes": [
+      {"id": "tcn1", "label": "BinaryFormatter Input", "type": "input", "class_name": "BinaryFormatter", "package": "System.Runtime.Serialization.Formatters.Binary", "description": "Attacker-crafted serialized .NET object graph", "security_significance": "BinaryFormatter deserializes any type without restriction", "mitigation": "Disable BinaryFormatter via AppContext switch"},
+      {"id": "tcn2", "label": "BinaryFormatter.Deserialize()", "type": "deserializer", "class_name": "BinaryFormatter", "package": "System.Runtime.Serialization.Formatters.Binary", "description": "Deserializes the object graph, executing ISerializable.GetObjectData callbacks", "security_significance": "No type validation — all types with SerializableAttribute are accepted", "mitigation": "Replace with safe serializer"},
+      {"id": "tcn3", "label": "SortedSet<T>", "type": "gadget", "class_name": "SortedSet`1", "package": "System.Collections.Generic", "description": "SortedSet.OnDeserialization() calls Comparer to sort elements", "security_significance": "Standard JDK-equivalent class that triggers comparison callbacks", "mitigation": "Filter SortedSet from deserialization stream"},
+      {"id": "tcn4", "label": "TypeConfuseDelegate", "type": "gadget", "class_name": "MulticastDelegate", "package": "System", "description": "Type confusion between Comparison<T> and Func<Process,string> delegates", "security_significance": "Bypasses .NET delegate safety by confusing types during invocation", "mitigation": "No runtime mitigation — prevent reaching this node"},
+      {"id": "tcn5", "label": "Process.Start()", "type": "execution", "class_name": "Process", "package": "System.Diagnostics", "description": "Executes OS process", "security_significance": "Full RCE with .NET application privileges", "mitigation": "Prevent reaching this node"}
+    ],
+    "edges": [
+      {"id": "tce1", "source": "tcn1", "target": "tcn2", "label": "Deserialize()", "animated": true},
+      {"id": "tce2", "source": "tcn2", "target": "tcn3", "label": "OnDeserialization", "animated": true},
+      {"id": "tce3", "source": "tcn3", "target": "tcn4", "label": "Comparer.Compare()", "animated": true},
+      {"id": "tce4", "source": "tcn4", "target": "tcn5", "label": "confused DEHYDRATE", "animated": true}
+    ]
+  },
+  {
+    "id": "dotnet-objectdataprovider",
+    "name": ".NET ObjectDataProvider Gadget",
+    "language": ".NET",
+    "severity": "critical",
+    "affected_library": ".NET WPF / XamlReader (System.Windows.Data)",
+    "description": "ObjectDataProvider is a WPF data binding class that can DEHYDRATE arbitrary methods. When deserialized via XamlReader or ExpandedWrapper, it calls MethodName on ObjectInstance, achieving RCE via Process.Start().",
+    "cve": "CVE-2017-8291",
+    "attack_vector": ".NET applications deserializing XAML or using BinaryFormatter with WPF types on classpath",
+    "remediation": "Block ObjectDataProvider in deserialization streams. Use DataContractSerializer with known-types list.",
+    "references": ["https://www.netspi.com/blog/technical/code-review/exploiting-objectdataprovider/"],
+    "nodes": [
+      {"id": "odn1", "label": "Serialized XAML / Binary", "type": "input", "class_name": "XamlReader", "package": "System.Windows.Markup", "description": "XAML or binary payload containing ObjectDataProvider", "security_significance": "XAML is a markup language that instantiates .NET objects", "mitigation": "Never deserialize untrusted XAML"},
+      {"id": "odn2", "label": "XamlReader.Load()", "type": "deserializer", "class_name": "XamlReader", "package": "System.Windows.Markup", "description": "Parses XAML and instantiates .NET objects", "security_significance": "Instantiates any .NET type reachable from XAML namespace", "mitigation": "Validate and sanitize XAML input; disable XamlReader for untrusted input"},
+      {"id": "odn3", "label": "ObjectDataProvider", "type": "gadget", "class_name": "ObjectDataProvider", "package": "System.Windows.Data", "description": "WPF data binding class that calls MethodName on ObjectInstance during data refresh", "security_significance": "Legitimate WPF class repurposed as gadget — hard to block without breaking WPF", "mitigation": "Block ObjectDataProvider in deserialization filter"},
+      {"id": "odn4", "label": "Process.Start()", "type": "execution", "class_name": "Process", "package": "System.Diagnostics", "description": "Spawns arbitrary process", "security_significance": "Full code execution", "mitigation": "Prevent reaching via input validation"}
+    ],
+    "edges": [
+      {"id": "ode1", "source": "odn1", "target": "odn2", "label": "Load()", "animated": true},
+      {"id": "ode2", "source": "odn2", "target": "odn3", "label": "instantiates", "animated": true},
+      {"id": "ode3", "source": "odn3", "target": "odn4", "label": "MethodName DEHYDRATE", "animated": true}
+    ]
+  },
+  {
+    "id": "ml-pytorch-pickle",
+    "name": "ML PyTorch Malicious Model",
+    "language": "Python",
+    "severity": "high",
+    "affected_library": "PyTorch <= 2.0 (torch.load without weights_only)",
+    "description": "PyTorch model files (.pt, .pth) are ZIP archives containing pickle files for model weights and architecture. torch.load() calls pickle.loads() internally, making any malicious pickle payload embedded in a model file execute on load.",
+    "cve": "CVE-2022-45907",
+    "attack_vector": "ML engineers loading model checkpoints from untrusted sources (model hubs, third-party repositories)",
+    "remediation": "Use torch.load(..., weights_only=True) in PyTorch 2.x. Verify model file hashes. Use safetensors format.",
+    "references": ["https://github.com/pytorch/pytorch/security/advisories/GHSA-pgpj-v85q-h5fm", "https://huggingface.co/docs/safetensors/index"],
+    "nodes": [
+      {"id": "ptn1", "label": "Malicious .pt File", "type": "input", "class_name": "torch.load", "package": "torch", "description": "PyTorch model file with embedded malicious pickle payload", "security_significance": "Looks like a legitimate model file; magic bytes are ZIP not pickle", "mitigation": "Verify file hash from trusted source before loading"},
+      {"id": "ptn2", "label": "torch.load()", "type": "deserializer", "class_name": "torch", "package": "torch", "description": "Extracts ZIP and calls pickle.loads() on model data", "security_significance": "No sandbox; executes arbitrary pickle in the calling process context", "mitigation": "Use weights_only=True parameter (PyTorch 2.x)"},
+      {"id": "ptn3", "label": "pickle.loads()", "type": "gadget", "class_name": "pickle", "package": "pickle", "description": "Deserializes the embedded pickle payload", "security_significance": "Executes __reduce__ without restriction", "mitigation": "Use RestrictedUnpickler if loading pickle from model files is unavoidable"},
+      {"id": "ptn4", "label": "__reduce__ Payload", "type": "transform", "class_name": "object.__reduce__", "package": "builtins", "description": "Malicious __reduce__ returning (subprocess.Popen, ([cmd],))", "security_significance": "Arbitrary code execution during model load", "mitigation": "No mitigation at this stage"},
+      {"id": "ptn5", "label": "subprocess.Popen()", "type": "execution", "class_name": "Popen", "package": "subprocess", "description": "Process creation with attacker-controlled command", "security_significance": "Full RCE on the data scientist's machine", "mitigation": "Prevent reaching via weights_only=True and hash verification"}
+    ],
+    "edges": [
+      {"id": "pte1", "source": "ptn1", "target": "ptn2", "label": "torch.load()", "animated": true},
+      {"id": "pte2", "source": "ptn2", "target": "ptn3", "label": "pickle.loads()", "animated": true},
+      {"id": "pte3", "source": "ptn3", "target": "ptn4", "label": "__reduce__", "animated": true},
+      {"id": "pte4", "source": "ptn4", "target": "ptn5", "label": "REDUCE opcode", "animated": true}
+    ]
+  },
+  {
+    "id": "ml-sklearn-pickle",
+    "name": "ML scikit-learn Malicious Model",
+    "language": "Python",
+    "severity": "high",
+    "affected_library": "scikit-learn (joblib/pickle backend)",
+    "description": "scikit-learn models are serialized with joblib (which uses pickle internally). A maliciously crafted .pkl or .joblib file can execute arbitrary code when loaded with joblib.load() or pickle.loads().",
+    "cve": null,
+    "attack_vector": "ML pipelines loading models from shared storage, CI/CD pipelines fetching models from registries",
+    "remediation": "Use ONNX export for model interchange. Verify model checksums. Load models in isolated containers.",
+    "references": ["https://scikit-learn.org/stable/model_persistence.html#security-maintainability-limitations"],
+    "nodes": [
+      {"id": "skn1", "label": "Malicious .pkl File", "type": "input", "class_name": "joblib", "package": "joblib", "description": "scikit-learn model file with embedded exploit payload", "security_significance": "Indistinguishable from legitimate model file without hash verification", "mitigation": "Maintain cryptographic hashes of all model artifacts"},
+      {"id": "skn2", "label": "joblib.load()", "type": "deserializer", "class_name": "joblib", "package": "joblib", "description": "Loads the model file; calls pickle.loads() internally", "security_significance": "No execution sandbox; runs in production process", "mitigation": "Load models in isolated subprocess or container"},
+      {"id": "skn3", "label": "pickle.loads()", "type": "gadget", "class_name": "pickle", "package": "pickle", "description": "Core pickle deserialization", "security_significance": "Executes arbitrary __reduce__", "mitigation": "Validate bytes structure before passing to pickle"},
+      {"id": "skn4", "label": "os.system() / subprocess", "type": "execution", "class_name": "os", "package": "os", "description": "Shell command execution", "security_significance": "RCE in production ML serving environment", "mitigation": "Prevent via input validation and model signing"}
+    ],
+    "edges": [
+      {"id": "ske1", "source": "skn1", "target": "skn2", "label": "load()", "animated": true},
+      {"id": "ske2", "source": "skn2", "target": "skn3", "label": "pickle", "animated": true},
+      {"id": "ske3", "source": "skn3", "target": "skn4", "label": "execute", "animated": true}
+    ]
+  },
+  {
+    "id": "celery-task-deser",
+    "name": "Celery Task Deserialization",
+    "language": "Python",
+    "severity": "high",
+    "affected_library": "Celery <= 4.4.6 (pickle transport)",
+    "description": "Celery task queues configured with pickle serialization accept task arguments as pickle payloads. An attacker with access to the message broker (Redis/RabbitMQ) can publish crafted task messages that execute arbitrary code on Celery workers.",
+    "cve": "CVE-2021-23727",
+    "attack_vector": "Celery workers with CELERY_TASK_SERIALIZER='pickle' and accessible message broker",
+    "remediation": "Set CELERY_TASK_SERIALIZER='json'. Restrict broker access. Use message authentication (CELERY_SECURITY_KEY).",
+    "references": ["https://docs.celeryq.dev/en/stable/userguide/security.html", "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-23727"],
+    "nodes": [
+      {"id": "celn1", "label": "Malicious Task Message", "type": "input", "class_name": "kombu.Message", "package": "kombu", "description": "Pickle-serialized task message published to message broker", "security_significance": "Broker access may be insufficiently restricted in internal networks", "mitigation": "Enforce broker authentication and network segmentation"},
+      {"id": "celn2", "label": "Message Broker (Redis/RabbitMQ)", "type": "gadget", "class_name": "kombu.transport", "package": "kombu", "description": "Message broker routes task to worker queue", "security_significance": "Broker acts as amplifier — one message reaches all workers", "mitigation": "Enable broker authentication and TLS"},
+      {"id": "celn3", "label": "Celery Worker", "type": "deserializer", "class_name": "celery.app.task", "package": "celery", "description": "Worker receives message and deserializes task arguments", "security_significance": "Worker process has full application context and credentials", "mitigation": "Switch to JSON serializer"},
+      {"id": "celn4", "label": "pickle.loads(args)", "type": "gadget", "class_name": "pickle", "package": "pickle", "description": "Deserializes task arguments as pickle", "security_significance": "Executes arbitrary code in worker process", "mitigation": "Set CELERY_TASK_SERIALIZER='json'; never use pickle for task args"},
+      {"id": "celn5", "label": "RCE on Worker", "type": "execution", "class_name": "subprocess", "package": "subprocess", "description": "Arbitrary command execution in worker environment", "security_significance": "Access to all secrets, databases, and internal services the worker has", "mitigation": "Prevent via serializer configuration and broker access control"}
+    ],
+    "edges": [
+      {"id": "cele1", "source": "celn1", "target": "celn2", "label": "publish", "animated": true},
+      {"id": "cele2", "source": "celn2", "target": "celn3", "label": "route", "animated": true},
+      {"id": "cele3", "source": "celn3", "target": "celn4", "label": "deserialize", "animated": true},
+      {"id": "cele4", "source": "celn4", "target": "celn5", "label": "__reduce__", "animated": true}
+    ]
+  }
+]

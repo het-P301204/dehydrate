@@ -1,0 +1,52 @@
+[
+  {
+    "id": "python-pickle-lab",
+    "name": "Python Pickle Lab",
+    "type": "python-pickle",
+    "status": "stopped",
+    "runtime": "Python 3.11",
+    "port": 8001,
+    "description": "Isolated Python environment for pickle deserialization research. Demonstrates __reduce__ gadgets, REDUCE opcode injection, and custom Unpickler defenses.",
+    "vulnerabilities": ["Arbitrary code execution via __reduce__", "GLOBAL opcode module loading", "Protocol version downgrade"]
+  },
+  {
+    "id": "java-serialization-lab",
+    "name": "Java Serialization Lab",
+    "type": "java-serialization",
+    "status": "stopped",
+    "runtime": "OpenJDK 11",
+    "port": 8002,
+    "description": "Java deserialization research environment. Includes vulnerable Commons Collections versions and ysoserial-style gadget chain demonstrations.",
+    "vulnerabilities": ["CommonsCollections1/6 gadget chains", "InvokerTransformer reflection abuse", "AnnotationInvocationHandler bypass"]
+  },
+  {
+    "id": "dotnet-viewstate-lab",
+    "name": ".NET ViewState Lab",
+    "type": "dotnet-viewstate",
+    "status": "stopped",
+    "runtime": ".NET 6",
+    "port": 8003,
+    "description": ".NET BinaryFormatter and ViewState deserialization research. Demonstrates MAC bypass, ObjectDataProvider gadgets, and TypeConfuseDelegate chains.",
+    "vulnerabilities": ["ViewState MAC bypass", "BinaryFormatter arbitrary type loading", "ObjectDataProvider gadget chain"]
+  },
+  {
+    "id": "ml-model-lab",
+    "name": "ML Model Security Lab",
+    "type": "ml-model",
+    "status": "stopped",
+    "runtime": "Python 3.11 + PyTorch",
+    "port": 8004,
+    "description": "ML model supply chain security research. Analyzes PyTorch .pt files, scikit-learn .pkl files, and demonstrates safetensors as a safe alternative.",
+    "vulnerabilities": ["torch.load() without weights_only", "joblib.load() arbitrary pickle", "Model hub supply chain attack"]
+  },
+  {
+    "id": "callback-simulator-lab",
+    "name": "Callback Simulator Lab",
+    "type": "callback-simulator",
+    "status": "running",
+    "runtime": "Python 3.11 (FastAPI)",
+    "port": 8080,
+    "description": "Out-of-band callback interception simulator. Captures simulated DNS, HTTP, RMI, and LDAP callbacks that deserialization payloads would trigger in real scenarios.",
+    "vulnerabilities": ["DNS callback exfiltration", "HTTP SSRF via deserialization", "JNDI/RMI injection simulation"]
+  }
+]

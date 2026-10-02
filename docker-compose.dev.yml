@@ -1,0 +1,78 @@
+version: '3.9'
+
+# Development overrides — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+networks:
+  serial_frontend:
+    driver: bridge
+  serial_lab:
+    driver: bridge
+    internal: true
+  serial_callback:
+    driver: bridge
+    internal: true
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: builder
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    command: npm run dev
+    ports:
+      - "3000:3000"
+
+  backend:
+    volumes:
+      - ./backend:/app
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=debug
+      - CALLBACK_URL=http://callback-simulator:8080
+      - PYTHON_LAB_URL=http://python-pickle-lab:8000
+      - JAVA_LAB_URL=http://java-serialization-lab:8080
+      - DOTNET_LAB_URL=http://dotnet-viewstate-lab:5000
+      - ML_LAB_URL=http://ml-model-lab:8000
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  python-pickle-lab:
+    volumes:
+      - ./labs/python-pickle-lab:/lab
+    environment:
+      - LAB_MODE=authorized
+      - CALLBACK_URL=http://callback-simulator:8080
+    # Allow hot-reload in dev mode
+    user: "root"
+    command: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+
+  java-serialization-lab:
+    volumes:
+      - ./labs/java-serialization-lab:/lab
+    user: "root"
+    command: uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+
+  dotnet-viewstate-lab:
+    volumes:
+      - ./labs/dotnet-viewstate-lab:/lab
+    user: "root"
+    command: uvicorn app:app --host 0.0.0.0 --port 5000 --reload
+
+  ml-model-lab:
+    volumes:
+      - ./labs/ml-model-lab:/lab
+    user: "root"
+    command: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+
+  callback-simulator:
+    volumes:
+      - ./labs/callback-simulator:/app
+    user: "root"
+    command: uvicorn app:app --host 0.0.0.0 --port 8080 --reload
